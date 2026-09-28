@@ -36,7 +36,7 @@ class PastebinTest(unittest.TestCase):
         response = self.post(content, title="示例", author="Tester", syntax="python")
         self.assertEqual(response.status_code, 201)
         record = response.json
-        self.assertEqual(len(record["id"]), 24)
+        self.assertEqual(len(record["id"]), 6)
         self.assertEqual(record["size_bytes"], len(content.encode("utf-8")))
         raw = self.client.get(f'/p/{record["id"]}/raw')
         self.assertEqual(raw.data, content.encode("utf-8"))
@@ -51,7 +51,59 @@ class PastebinTest(unittest.TestCase):
     def test_form_redirects_without_javascript(self):
         response = self.client.post("/paste", data={"content": "from form", "expiry": "7d"})
         self.assertEqual(response.status_code, 303)
+        self.assertRegex(response.location, r"^/p/[A-Za-z0-9_-]{6}/$")
         self.assertEqual(self.client.get(response.location).status_code, 200)
+
+    def test_collisions_extend_ids_by_three_without_changing_existing_pastes(self):
+        self.app.config["RATE_LIMIT"] = 6
+        records = []
+        with patch("app.secrets.token_urlsafe", return_value="a" * 32):
+            for length in (6, 9, 12, 15, 18):
+                content = f"paste with {length} character id"
+                response = self.post(content)
+                self.assertEqual(response.status_code, 201)
+                self.assertEqual(len(response.json["id"]), length)
+                records.append((response.json, content))
+        for record, content in records:
+            self.assertEqual(self.client.get(f'/p/{record["id"]}/').status_code, 200)
+            self.assertEqual(self.client.get(f'/api/pastes/{record["id"]}').json["content"], content)
+            for suffix in ("raw", "download"):
+                self.assertEqual(self.client.get(f'/p/{record["id"]}/{suffix}').data, content.encode())
+        with patch("app.secrets.token_urlsafe", return_value="b" * 32):
+            response = self.post("next paste starts at six characters again")
+            self.assertEqual(response.status_code, 201)
+            self.assertEqual(len(response.json["id"]), 6)
+        with sqlite3.connect(self.database) as db:
+            self.assertEqual(db.execute("SELECT count(*) FROM pastes").fetchone()[0], 6)
+            self.assertEqual(db.execute("SELECT sum(count) FROM rate_limits").fetchone()[0], 6)
+        self.assertEqual(self.post().status_code, 429)
+
+    def test_concurrent_id_collisions_preserve_every_paste(self):
+        def write(index):
+            content = f"concurrent paste {index}"
+            with self.app.test_client() as client:
+                response = client.post("/api/pastes", json={"content": content})
+                return response.status_code, response.json, content
+        with patch("app.secrets.token_urlsafe", return_value="c" * 32):
+            with ThreadPoolExecutor(max_workers=4) as workers:
+                results = list(workers.map(write, range(4)))
+        self.assertEqual([status for status, _, _ in results], [201] * 4)
+        self.assertEqual(sorted(len(record["id"]) for _, record, _ in results), [6, 9, 12, 15])
+        for _, record, content in results:
+            self.assertEqual(self.client.get(f'/p/{record["id"]}/raw').data, content.encode())
+
+    def test_legacy_24_character_links_remain_readable(self):
+        record = self.post("existing paste").json
+        legacy_id = "legacy_-" + "a" * 16
+        with sqlite3.connect(self.database) as db:
+            db.execute("UPDATE pastes SET id = ? WHERE id = ?", (legacy_id, record["id"]))
+        self.assertEqual(self.client.get(f"/p/{legacy_id}/").status_code, 200)
+        api = self.client.get(f"/api/pastes/{legacy_id}")
+        self.assertEqual(api.status_code, 200)
+        self.assertEqual(api.json["id"], legacy_id)
+        self.assertEqual(api.json["content"], "existing paste")
+        for suffix in ("raw", "download"):
+            self.assertEqual(self.client.get(f"/p/{legacy_id}/{suffix}").data, b"existing paste")
 
     def test_exact_byte_limit_and_one_byte_over(self):
         self.assertEqual(self.post("a" * MAX_TEXT_BYTES).status_code, 201)

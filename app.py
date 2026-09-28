@@ -28,7 +28,7 @@ SYNTAXES = {
     "yaml": "YAML", "markdown": "Markdown", "diff": "Diff", "go": "Go", "rust": "Rust",
     "c": "C", "cpp": "C++",
 }
-ID_PATTERN = re.compile(r"[A-Za-z0-9_-]{24}\Z")
+ID_PATTERN = re.compile(r"[A-Za-z0-9_-]{6,}\Z")
 REQUEST_LIMIT = MAX_TEXT_BYTES * 6 + 16384  # JSON escapes and form encoding overhead.
 ERROR_MESSAGES = {
     400: "提交内容有误，请检查后重试。", 404: "这条 Paste 不存在，或已到期删除。",
@@ -221,7 +221,7 @@ def create_app(test_config=None):
     def save_paste(data):
         values = validate_paste(data)
         now = int(time.time())
-        paste = {**values, "id": secrets.token_urlsafe(18), "created_at": now,
+        paste = {**values, "created_at": now,
                  "expires_at": now + EXPIRIES[values["expiry"]][0]}
         db = get_db()
         with db:
@@ -236,10 +236,18 @@ def create_app(test_config=None):
             usage = db.execute("SELECT count(*), coalesce(sum(size_bytes), 0) FROM pastes").fetchone()
             if usage[0] >= app.config["MAX_PASTES"] or usage[1] + paste["size_bytes"] > app.config["MAX_STORAGE_BYTES"]:
                 abort(503, description="存储空间暂时已满，请稍后再试。")
-            db.execute(
-                "INSERT INTO pastes (id, title, author, syntax, content, size_bytes, created_at, expires_at) "
-                "VALUES (:id, :title, :author, :syntax, :content, :size_bytes, :created_at, :expires_at)", paste
-            )
+            id_length = 6
+            while True:
+                # token_urlsafe takes a byte count; truncate to the desired character count.
+                paste["id"] = secrets.token_urlsafe(id_length)[:id_length]
+                inserted = db.execute(
+                    "INSERT INTO pastes (id, title, author, syntax, content, size_bytes, created_at, expires_at) "
+                    "VALUES (:id, :title, :author, :syntax, :content, :size_bytes, :created_at, :expires_at) "
+                    "ON CONFLICT(id) DO NOTHING", paste
+                )
+                if inserted.rowcount == 1:
+                    break
+                id_length += 3
             db.execute(
                 "INSERT INTO rate_limits (key, count, resets_at) VALUES (?, 1, ?) "
                 "ON CONFLICT(key) DO UPDATE SET count = count + 1",
