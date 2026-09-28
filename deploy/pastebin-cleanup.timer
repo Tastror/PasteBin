@@ -1,0 +1,11 @@
+[Unit]
+Description=Clean up expired Pastebin content every minute
+
+[Timer]
+OnCalendar=*-*-* *:*:00
+AccuracySec=5s
+Persistent=true
+Unit=pastebin-cleanup.service
+
+[Install]
+WantedBy=timers.target

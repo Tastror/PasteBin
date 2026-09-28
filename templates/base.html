@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light">
+  <meta name="robots" content="noindex, nofollow, noarchive">
+  <meta name="description" content="一个简单的文本分享工具。粘贴文本，生成链接，轻松分享。">
+  <title>{% block title %}新建 Paste{% endblock %} · {{ site_name }}</title>
+  <link rel="icon" href="{{ url_for('static', filename='favicon.svg') }}" type="image/svg+xml">
+  <link rel="stylesheet" href="{{ url_for('static', filename='app.css') }}?v=1">
+  <script src="{{ url_for('static', filename='app.js') }}?v=1" defer></script>
+</head>
+<body>
+  <a class="skip-link" href="#main">跳到主要内容</a>
+  <header class="site-header">
+    <div class="header-inner">
+      <a class="brand" href="/" aria-label="{{ site_name }} 首页"><span class="brand-symbol" aria-hidden="true">[p]</span><span>{{ site_name }}</span></a>
+      <a class="header-link" href="/">新建 Paste <span aria-hidden="true">＋</span></a>
+    </div>
+  </header>
+  <main id="main" class="container">{% block content %}{% endblock %}</main>
+  <footer class="site-footer container">
+    <span>{{ site_name }}</span>
+  </footer>
+  <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
+</body>
+</html>

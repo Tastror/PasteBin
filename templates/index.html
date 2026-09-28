@@ -1,0 +1,27 @@
+{% extends "base.html" %}
+{% block content %}
+  <div class="workspace">
+    <form class="paste-form" id="paste-form" action="/paste" method="post" data-max-bytes="{{ max_text_bytes }}">
+      {% if error %}<div class="form-error" role="alert">{{ error }}</div>{% endif %}
+      <div class="field-row">
+        <div class="field title-field"><label for="title">标题 <span class="optional">可选</span></label><input id="title" name="title" maxlength="120" value="{{ values.get('title', '') }}" placeholder="给这段文本起个名字" autocomplete="off"></div>
+        <div class="field"><label for="author">署名 <span class="optional">可选</span></label><input id="author" name="author" maxlength="64" value="{{ values.get('author', '') }}" placeholder="匿名" autocomplete="off"></div>
+      </div>
+      <div class="field content-field">
+        <div class="label-row"><label for="content">文本内容</label><span class="keyboard-hint">Ctrl / ⌘ + Enter 提交</span></div>
+        <div class="editor-shell" id="editor-shell">
+          <div class="editor-topline"><span class="editor-dot" aria-hidden="true"></span><span id="editor-format">Plain text</span><span class="editor-note">UTF-8</span></div>
+          <textarea id="content" name="content" placeholder="在这里粘贴你的文本或代码…" required spellcheck="false" autocapitalize="off" autocomplete="off" aria-describedby="size-help editor-error">{{ values.get('content', '') }}</textarea>
+          <div class="editor-status"><span id="line-count">1 行</span><span id="size-help"><span id="byte-count">0 B</span></span></div>
+        </div>
+        <p class="field-error" id="editor-error" role="alert" hidden></p>
+      </div>
+      <div class="settings-row">
+        <div class="field"><label for="syntax">文本格式</label><select id="syntax" name="syntax">{% for key, label in syntaxes.items() %}<option value="{{ key }}"{% if values.get('syntax') == key %} selected{% endif %}>{{ label }}</option>{% endfor %}</select></div>
+        <div class="field"><label for="expiry">保存时间</label><select id="expiry" name="expiry">{% for key, item in expiries.items() %}<option value="{{ key }}"{% if values.get('expiry') == key %} selected{% endif %}>{{ item[1] }}</option>{% endfor %}</select></div>
+        <button class="button primary submit-button" id="submit-button" type="submit">创建 Paste <span aria-hidden="true">→</span></button>
+      </div>
+      <p class="form-caption">创建后即可获得分享链接，到期自动删除。</p>
+    </form>
+  </div>
+{% endblock %}

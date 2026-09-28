@@ -1,0 +1,22 @@
+[Unit]
+Description=Remove expired Pastebin content
+After=pastebin.service
+
+[Service]
+Type=oneshot
+User=pastebin
+Group=pastebin
+WorkingDirectory=/opt/pastebin
+EnvironmentFile=/etc/pastebin/pastebin.env
+Environment=PYTHONDONTWRITEBYTECODE=1
+ExecStart=/opt/pastebin/.venv/bin/flask --app app:create_app cleanup
+StateDirectory=pastebin
+StateDirectoryMode=0700
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=/var/lib/pastebin
+MemoryMax=96M
+TasksMax=16

@@ -1,0 +1,16 @@
+{% extends "base.html" %}
+{% block title %}{{ paste.title or '未命名 Paste' }}{% endblock %}
+{% block content %}
+  <section class="paste-intro" data-expires-at="{{ paste.expires_at }}">
+    <div class="paste-heading"><h1>{{ paste.title or '未命名 Paste' }}</h1></div>
+    <p class="paste-meta"><span>{{ paste.author or '匿名' }}</span><span class="meta-dot">·</span><time datetime="{{ paste.created_at | timestamp }}">{{ paste.created_at | timestamp }}</time><span class="meta-dot">·</span><span>{{ syntaxes[paste.syntax] }}</span><span class="meta-dot">·</span><span>{{ paste.size_bytes | filesize }}</span></p>
+  </section>
+  <section class="share-bar" aria-label="分享链接"><label for="share-url">分享链接</label><input id="share-url" value="{{ metadata.url }}" readonly><button class="button primary" type="button" id="copy-link">复制链接</button></section>
+  <section class="paste-view" aria-label="Paste 内容">
+    <div class="paste-toolbar"><div class="file-description"><span class="file-icon" aria-hidden="true">≡</span><span>{{ syntaxes[paste.syntax] }}</span><span class="subtle">{{ line_count }} 行</span></div><div class="paste-actions"><button type="button" class="text-button" id="wrap-toggle" aria-pressed="false">自动换行</button><button type="button" class="text-button" id="copy-content" data-raw-url="{{ url_for('raw_paste', paste_id=paste.id) }}">复制内容</button><a href="{{ url_for('raw_paste', paste_id=paste.id) }}">原文</a><a href="{{ url_for('download_paste', paste_id=paste.id) }}">下载 <span aria-hidden="true">↓</span></a></div></div>
+    <div class="code-scroll" id="code-scroll" tabindex="0" aria-label="可滚动的文本内容"><div class="code-panel">{% if line_numbers %}<pre class="line-numbers" aria-hidden="true">{{ line_numbers }}</pre>{% endif %}<pre class="paste-code"><code id="paste-content">{{ rendered }}</code></pre></div></div>
+    <div class="paste-status"><span>到期时间：<time datetime="{{ paste.expires_at | timestamp }}">{{ paste.expires_at | timestamp }}</time></span><span id="expiry-countdown">到期自动删除</span></div>
+  </section>
+  {% if highlight_skipped %}<p class="form-caption">这段文本较长，已使用纯文本显示。原文与下载保留完整内容。</p>{% endif %}
+  <p class="view-note">持有链接的人均可访问此内容。到期后，分享链接和原文链接同时失效。</p>
+{% endblock %}

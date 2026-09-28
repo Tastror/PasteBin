@@ -1,0 +1,36 @@
+[Unit]
+Description=Pastebin
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=simple
+User=pastebin
+Group=pastebin
+WorkingDirectory=/opt/pastebin
+EnvironmentFile=/etc/pastebin/pastebin.env
+Environment=PYTHONDONTWRITEBYTECODE=1
+ExecStart=/opt/pastebin/.venv/bin/gunicorn --bind 127.0.0.1:8000 --workers 1 --threads 4 --timeout 30 --max-requests 2000 --max-requests-jitter 200 --no-control-socket --error-logfile - app:create_app()
+StateDirectory=pastebin
+StateDirectoryMode=0700
+Restart=on-failure
+RestartSec=3s
+TimeoutStopSec=35s
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=/var/lib/pastebin
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+CapabilityBoundingSet=
+MemoryHigh=192M
+MemoryMax=256M
+TasksMax=32
+
+[Install]
+WantedBy=multi-user.target

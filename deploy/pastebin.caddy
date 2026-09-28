@@ -1,0 +1,9 @@
+paste.example.com {
+	encode zstd gzip
+	request_body {
+		max_size 6310000
+	}
+	reverse_proxy 127.0.0.1:8000 {
+		header_up X-Pastebin-Client-IP {remote_host}
+	}
+}

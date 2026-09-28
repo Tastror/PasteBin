@@ -1,0 +1,5 @@
+{% extends "base.html" %}
+{% block title %}{{ status }}{% endblock %}
+{% block content %}
+  <section class="error-page"><p class="eyebrow">{{ status }}</p><h1>{% if status == 404 %}这段文本已不在这里。{% else %}暂时无法完成请求。{% endif %}</h1><p class="lead">{{ message }}</p><a class="button primary" href="/">创建新的 Paste <span aria-hidden="true">→</span></a></section>
+{% endblock %}
