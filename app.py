@@ -28,7 +28,7 @@ SYNTAXES = {
     "yaml": "YAML", "markdown": "Markdown", "diff": "Diff", "go": "Go", "rust": "Rust",
     "c": "C", "cpp": "C++",
 }
-ID_PATTERN = re.compile(r"[A-Za-z0-9_-]{6,}\Z")
+ID_PATTERN = re.compile(r"[A-Za-z0-9_-]{6,24}\Z")
 REQUEST_LIMIT = MAX_TEXT_BYTES * 6 + 16384  # JSON escapes and form encoding overhead.
 ERROR_MESSAGES = {
     400: "提交内容有误，请检查后重试。", 404: "这条 Paste 不存在，或已到期删除。",
@@ -247,7 +247,7 @@ def create_app(test_config=None):
                 )
                 if inserted.rowcount == 1:
                     break
-                id_length += 3
+                id_length = min(id_length + 3, 24)
             db.execute(
                 "INSERT INTO rate_limits (key, count, resets_at) VALUES (?, 1, ?) "
                 "ON CONFLICT(key) DO UPDATE SET count = count + 1",
@@ -308,7 +308,7 @@ def create_app(test_config=None):
         paste = find_paste(paste_id)
         return jsonify(**paste_metadata(paste), content=paste["content"])
 
-    @app.get("/p/<paste_id>/")
+    @app.get("/p/<paste_id>", strict_slashes=False)
     def view_paste(paste_id):
         paste = find_paste(paste_id)
         content = paste["content"]

@@ -37,6 +37,8 @@ class PastebinTest(unittest.TestCase):
         self.assertEqual(response.status_code, 201)
         record = response.json
         self.assertEqual(len(record["id"]), 6)
+        self.assertEqual(record["url"], f'http://localhost/p/{record["id"]}')
+        self.assertEqual(response.headers["Location"], f'/p/{record["id"]}')
         self.assertEqual(record["size_bytes"], len(content.encode("utf-8")))
         raw = self.client.get(f'/p/{record["id"]}/raw')
         self.assertEqual(raw.data, content.encode("utf-8"))
@@ -51,19 +53,25 @@ class PastebinTest(unittest.TestCase):
     def test_form_redirects_without_javascript(self):
         response = self.client.post("/paste", data={"content": "from form", "expiry": "7d"})
         self.assertEqual(response.status_code, 303)
-        self.assertRegex(response.location, r"^/p/[A-Za-z0-9_-]{6}/$")
+        self.assertRegex(response.location, r"^/p/[A-Za-z0-9_-]{6}$")
         self.assertEqual(self.client.get(response.location).status_code, 200)
 
     def test_collisions_extend_ids_by_three_without_changing_existing_pastes(self):
-        self.app.config["RATE_LIMIT"] = 6
+        self.app.config["RATE_LIMIT"] = 9
         records = []
         with patch("app.secrets.token_urlsafe", return_value="a" * 32):
-            for length in (6, 9, 12, 15, 18):
+            for length in (6, 9, 12, 15, 18, 21, 24):
                 content = f"paste with {length} character id"
                 response = self.post(content)
                 self.assertEqual(response.status_code, 201)
                 self.assertEqual(len(response.json["id"]), length)
                 records.append((response.json, content))
+        with patch("app.secrets.token_urlsafe", side_effect=["a" * 32] * 9 + ["b" * 32]):
+            content = "retry at 24 characters until a free id is found"
+            response = self.post(content)
+            self.assertEqual(response.status_code, 201)
+            self.assertEqual(len(response.json["id"]), 24)
+            records.append((response.json, content))
         for record, content in records:
             self.assertEqual(self.client.get(f'/p/{record["id"]}/').status_code, 200)
             self.assertEqual(self.client.get(f'/api/pastes/{record["id"]}').json["content"], content)
@@ -74,9 +82,21 @@ class PastebinTest(unittest.TestCase):
             self.assertEqual(response.status_code, 201)
             self.assertEqual(len(response.json["id"]), 6)
         with sqlite3.connect(self.database) as db:
-            self.assertEqual(db.execute("SELECT count(*) FROM pastes").fetchone()[0], 6)
-            self.assertEqual(db.execute("SELECT sum(count) FROM rate_limits").fetchone()[0], 6)
+            self.assertEqual(db.execute("SELECT count(*) FROM pastes").fetchone()[0], 9)
+            self.assertEqual(db.execute("SELECT sum(count) FROM rate_limits").fetchone()[0], 9)
         self.assertEqual(self.post().status_code, 429)
+
+    def test_collision_regenerates_the_entire_longer_id(self):
+        with patch("app.secrets.token_urlsafe", return_value="abc123XY"):
+            first = self.post("original paste").json
+        with patch("app.secrets.token_urlsafe", side_effect=["abc123XY", "NewId9876XYZ"]):
+            response = self.post("new paste")
+        self.assertEqual(response.status_code, 201)
+        self.assertEqual(first["id"], "abc123")
+        self.assertEqual(response.json["id"], "NewId9876")
+        self.assertFalse(response.json["id"].startswith(first["id"]))
+        self.assertEqual(self.client.get(f'/p/{first["id"]}/raw').data, b"original paste")
+        self.assertEqual(self.client.get(f'/p/{response.json["id"]}/raw').data, b"new paste")
 
     def test_concurrent_id_collisions_preserve_every_paste(self):
         def write(index):
@@ -97,10 +117,14 @@ class PastebinTest(unittest.TestCase):
         legacy_id = "legacy_-" + "a" * 16
         with sqlite3.connect(self.database) as db:
             db.execute("UPDATE pastes SET id = ? WHERE id = ?", (legacy_id, record["id"]))
-        self.assertEqual(self.client.get(f"/p/{legacy_id}/").status_code, 200)
+        for route in (f"/p/{legacy_id}", f"/p/{legacy_id}/"):
+            response = self.client.get(route)
+            self.assertEqual(response.status_code, 200)
+            self.assertIn(f'id="share-url" value="http://localhost/p/{legacy_id}"', response.get_data(as_text=True))
         api = self.client.get(f"/api/pastes/{legacy_id}")
         self.assertEqual(api.status_code, 200)
         self.assertEqual(api.json["id"], legacy_id)
+        self.assertEqual(api.json["url"], f"http://localhost/p/{legacy_id}")
         self.assertEqual(api.json["content"], "existing paste")
         for suffix in ("raw", "download"):
             self.assertEqual(self.client.get(f"/p/{legacy_id}/{suffix}").data, b"existing paste")
@@ -121,13 +145,13 @@ class PastebinTest(unittest.TestCase):
         content = "中" * (MAX_TEXT_BYTES // 3) + "a"
         response = self.client.post("/paste", data={"content": content})
         self.assertEqual(response.status_code, 303)
-        self.assertEqual(self.client.get(response.location + "raw").data.decode(), content)
+        self.assertEqual(self.client.get(response.location + "/raw").data.decode(), content)
 
     def test_browser_form_newlines_match_the_editor_size(self):
         editor_content = "x\n" * (MAX_TEXT_BYTES // 2)
         response = self.client.post("/paste", data={"content": editor_content.replace("\n", "\r\n")})
         self.assertEqual(response.status_code, 303)
-        self.assertEqual(self.client.get(response.location + "raw").data.decode(), editor_content)
+        self.assertEqual(self.client.get(response.location + "/raw").data.decode(), editor_content)
 
     def test_form_size_error_is_localized_and_preserves_input(self):
         response = self.client.post("/paste", data={"content": "x" * (MAX_TEXT_BYTES + 1), "title": "Keep my title"})
@@ -168,7 +192,7 @@ class PastebinTest(unittest.TestCase):
     def test_expired_paste_is_unreadable_everywhere_even_before_cleanup(self):
         with patch("app.time.time", return_value=1_800_000_000):
             record = self.post(expiry="10m").json
-        routes = (f'/p/{record["id"]}/', f'/p/{record["id"]}/raw', f'/p/{record["id"]}/download', f'/api/pastes/{record["id"]}')
+        routes = (f'/p/{record["id"]}', f'/p/{record["id"]}/', f'/p/{record["id"]}/raw', f'/p/{record["id"]}/download', f'/api/pastes/{record["id"]}')
         with patch("app.time.time", return_value=record["expires_at"] - 1):
             for route in routes:
                 self.assertEqual(self.client.get(route).status_code, 200)
@@ -264,7 +288,7 @@ class PastebinTest(unittest.TestCase):
     def test_canonical_links_ignore_untrusted_host(self):
         self.app.config["PUBLIC_ORIGIN"] = "https://paste.example.com"
         response = self.client.post("/api/pastes", json={"content": "x"}, headers={"Host": "evil.example"})
-        self.assertTrue(response.json["url"].startswith("https://paste.example.com/p/"))
+        self.assertEqual(response.json["url"], f'https://paste.example.com/p/{response.json["id"]}')
 
     def test_site_name_comes_from_configuration_and_is_escaped(self):
         self.app.config["SITE_NAME"] = 'Community <script>alert(1)</script>'
