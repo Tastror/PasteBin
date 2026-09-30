@@ -28,6 +28,7 @@ SYNTAXES = {
     "yaml": "YAML", "markdown": "Markdown", "diff": "Diff", "go": "Go", "rust": "Rust",
     "c": "C", "cpp": "C++",
 }
+ID_ALPHABET = "ABCDEFGHJKLMNOPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz0123456789_-"
 ID_PATTERN = re.compile(r"[A-Za-z0-9_-]{6,24}\Z")
 REQUEST_LIMIT = MAX_TEXT_BYTES * 6 + 16384  # JSON escapes and form encoding overhead.
 ERROR_MESSAGES = {
@@ -55,6 +56,10 @@ CREATE TABLE IF NOT EXISTS rate_limits (
     resets_at INTEGER NOT NULL
 );
 """
+
+
+def generate_paste_id(length):
+    return "".join(secrets.choice(ID_ALPHABET) for _ in range(length))
 
 
 def create_app(test_config=None):
@@ -238,10 +243,7 @@ def create_app(test_config=None):
                 abort(503, description="存储空间暂时已满，请稍后再试。")
             id_length = 6
             while True:
-                # token_urlsafe takes a byte count; truncate to the desired character count.
-                paste["id"] = secrets.token_urlsafe(id_length)[:id_length]
-                if "I" in paste["id"] or "l" in paste["id"]:
-                    continue
+                paste["id"] = generate_paste_id(id_length)
                 inserted = db.execute(
                     "INSERT INTO pastes (id, title, author, syntax, content, size_bytes, created_at, expires_at) "
                     "VALUES (:id, :title, :author, :syntax, :content, :size_bytes, :created_at, :expires_at) "

@@ -1,5 +1,6 @@
 import json
 import sqlite3
+import string
 import tempfile
 import unittest
 from concurrent.futures import ThreadPoolExecutor
@@ -56,8 +57,13 @@ class PastebinTest(unittest.TestCase):
         self.assertRegex(response.location, r"^/p/[A-Za-z0-9_-]{6}$")
         self.assertEqual(self.client.get(response.location).status_code, 200)
 
-    def test_new_ids_reject_uppercase_i_and_lowercase_l_without_growing(self):
-        with patch("app.secrets.token_urlsafe", side_effect=["Ibc123XY", "abc12lXY", "iL1_-0XY"]):
+    def test_new_ids_use_an_alphabet_without_uppercase_i_and_lowercase_l(self):
+        characters = iter("iL1_-0")
+        def choose(alphabet):
+            self.assertEqual(len(alphabet), 62)
+            self.assertEqual(set(alphabet), set(string.ascii_letters + string.digits + "_-") - {"I", "l"})
+            return next(characters)
+        with patch("app.secrets.choice", side_effect=choose):
             response = self.post("unambiguous id")
         self.assertEqual(response.status_code, 201)
         self.assertEqual(response.json["id"], "iL1_-0")
@@ -66,14 +72,15 @@ class PastebinTest(unittest.TestCase):
     def test_collisions_extend_ids_by_three_without_changing_existing_pastes(self):
         self.app.config["RATE_LIMIT"] = 9
         records = []
-        with patch("app.secrets.token_urlsafe", return_value="a" * 32):
+        with patch("app.generate_paste_id", side_effect=lambda length: "a" * length):
             for length in (6, 9, 12, 15, 18, 21, 24):
                 content = f"paste with {length} character id"
                 response = self.post(content)
                 self.assertEqual(response.status_code, 201)
                 self.assertEqual(len(response.json["id"]), length)
                 records.append((response.json, content))
-        with patch("app.secrets.token_urlsafe", side_effect=["a" * 32] * 9 + ["b" * 32]):
+        candidates = ["a" * length for length in (6, 9, 12, 15, 18, 21, 24, 24, 24)] + ["b" * 24]
+        with patch("app.generate_paste_id", side_effect=candidates):
             content = "retry at 24 characters until a free id is found"
             response = self.post(content)
             self.assertEqual(response.status_code, 201)
@@ -84,7 +91,7 @@ class PastebinTest(unittest.TestCase):
             self.assertEqual(self.client.get(f'/api/pastes/{record["id"]}').json["content"], content)
             for suffix in ("raw", "download"):
                 self.assertEqual(self.client.get(f'/p/{record["id"]}/{suffix}').data, content.encode())
-        with patch("app.secrets.token_urlsafe", return_value="b" * 32):
+        with patch("app.generate_paste_id", side_effect=lambda length: "b" * length):
             response = self.post("next paste starts at six characters again")
             self.assertEqual(response.status_code, 201)
             self.assertEqual(len(response.json["id"]), 6)
@@ -94,9 +101,9 @@ class PastebinTest(unittest.TestCase):
         self.assertEqual(self.post().status_code, 429)
 
     def test_collision_regenerates_the_entire_longer_id(self):
-        with patch("app.secrets.token_urlsafe", return_value="abc123XY"):
+        with patch("app.generate_paste_id", return_value="abc123"):
             first = self.post("original paste").json
-        with patch("app.secrets.token_urlsafe", side_effect=["abc123XY", "NewJd9876XYZ"]):
+        with patch("app.generate_paste_id", side_effect=["abc123", "NewJd9876"]):
             response = self.post("new paste")
         self.assertEqual(response.status_code, 201)
         self.assertEqual(first["id"], "abc123")
@@ -111,7 +118,7 @@ class PastebinTest(unittest.TestCase):
             with self.app.test_client() as client:
                 response = client.post("/api/pastes", json={"content": content})
                 return response.status_code, response.json, content
-        with patch("app.secrets.token_urlsafe", return_value="c" * 32):
+        with patch("app.generate_paste_id", side_effect=lambda length: "c" * length):
             with ThreadPoolExecutor(max_workers=4) as workers:
                 results = list(workers.map(write, range(4)))
         self.assertEqual([status for status, _, _ in results], [201] * 4)
