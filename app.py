@@ -240,6 +240,8 @@ def create_app(test_config=None):
             while True:
                 # token_urlsafe takes a byte count; truncate to the desired character count.
                 paste["id"] = secrets.token_urlsafe(id_length)[:id_length]
+                if "I" in paste["id"] or "l" in paste["id"]:
+                    continue
                 inserted = db.execute(
                     "INSERT INTO pastes (id, title, author, syntax, content, size_bytes, created_at, expires_at) "
                     "VALUES (:id, :title, :author, :syntax, :content, :size_bytes, :created_at, :expires_at) "

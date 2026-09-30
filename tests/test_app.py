@@ -56,6 +56,13 @@ class PastebinTest(unittest.TestCase):
         self.assertRegex(response.location, r"^/p/[A-Za-z0-9_-]{6}$")
         self.assertEqual(self.client.get(response.location).status_code, 200)
 
+    def test_new_ids_reject_uppercase_i_and_lowercase_l_without_growing(self):
+        with patch("app.secrets.token_urlsafe", side_effect=["Ibc123XY", "abc12lXY", "iL1_-0XY"]):
+            response = self.post("unambiguous id")
+        self.assertEqual(response.status_code, 201)
+        self.assertEqual(response.json["id"], "iL1_-0")
+        self.assertEqual(self.client.get(response.headers["Location"]).status_code, 200)
+
     def test_collisions_extend_ids_by_three_without_changing_existing_pastes(self):
         self.app.config["RATE_LIMIT"] = 9
         records = []
@@ -89,11 +96,11 @@ class PastebinTest(unittest.TestCase):
     def test_collision_regenerates_the_entire_longer_id(self):
         with patch("app.secrets.token_urlsafe", return_value="abc123XY"):
             first = self.post("original paste").json
-        with patch("app.secrets.token_urlsafe", side_effect=["abc123XY", "NewId9876XYZ"]):
+        with patch("app.secrets.token_urlsafe", side_effect=["abc123XY", "NewJd9876XYZ"]):
             response = self.post("new paste")
         self.assertEqual(response.status_code, 201)
         self.assertEqual(first["id"], "abc123")
-        self.assertEqual(response.json["id"], "NewId9876")
+        self.assertEqual(response.json["id"], "NewJd9876")
         self.assertFalse(response.json["id"].startswith(first["id"]))
         self.assertEqual(self.client.get(f'/p/{first["id"]}/raw').data, b"original paste")
         self.assertEqual(self.client.get(f'/p/{response.json["id"]}/raw').data, b"new paste")
@@ -114,7 +121,7 @@ class PastebinTest(unittest.TestCase):
 
     def test_legacy_24_character_links_remain_readable(self):
         record = self.post("existing paste").json
-        legacy_id = "legacy_-" + "a" * 16
+        legacy_id = "Il_old-_" + "a" * 16
         with sqlite3.connect(self.database) as db:
             db.execute("UPDATE pastes SET id = ? WHERE id = ?", (legacy_id, record["id"]))
         for route in (f"/p/{legacy_id}", f"/p/{legacy_id}/"):
